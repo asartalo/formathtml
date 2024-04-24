@@ -1,6 +1,7 @@
 package htmlformat
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"strings"
@@ -111,6 +112,21 @@ func isVoidElement(n *html.Node) bool {
 	return false
 }
 
+func isSpecialContentElement(n *html.Node) bool {
+	if n != nil {
+		switch n.DataAtom {
+		case atom.Style,
+			atom.Script:
+			return true
+		}
+	}
+	return false
+}
+
+func isEmptyTextNode(n *html.Node) bool {
+	return n.Type == html.TextNode && strings.TrimSpace(n.Data) == ""
+}
+
 func getFirstRune(s string) rune {
 	r, _ := utf8.DecodeRuneInString(s)
 	return r
@@ -126,18 +142,40 @@ func printNode(w io.Writer, n *html.Node, level int) (err error) {
 		s := n.Data
 		s = strings.TrimSpace(s)
 		if s != "" {
-			if !hasSingleTextChild(n.Parent) &&
+			if !isSpecialContentElement(n.Parent) && !hasSingleTextChild(n.Parent) &&
 				(n.PrevSibling == nil || !unicode.IsPunct(getFirstRune(s))) {
 				if err = printIndent(w, level); err != nil {
 					return
 				}
 			}
-			if _, err = fmt.Fprint(w, s); err != nil {
-				return
-			}
-			if !hasSingleTextChild(n.Parent) {
-				if _, err = fmt.Fprint(w, "\n"); err != nil {
+			if isSpecialContentElement(n.Parent) {
+				scanner := bufio.NewScanner(strings.NewReader(s))
+				for scanner.Scan() {
+					t := scanner.Text()
+					if _, err = fmt.Fprintln(w); err != nil {
+						return
+					}
+					if err = printIndent(w, level+1); err != nil {
+						return
+					}
+					if _, err = fmt.Fprint(w, t); err != nil {
+						return
+					}
+				}
+				if err = scanner.Err(); err != nil {
 					return
+				}
+				if _, err = fmt.Fprintln(w); err != nil {
+					return
+				}
+			} else {
+				if _, err = fmt.Fprint(w, s); err != nil {
+					return
+				}
+				if !hasSingleTextChild(n.Parent) {
+					if _, err = fmt.Fprint(w, "\n"); err != nil {
+						return
+					}
 				}
 			}
 		}
@@ -166,7 +204,7 @@ func printNode(w io.Writer, n *html.Node, level int) (err error) {
 			if err = printChildren(w, n, level+1); err != nil {
 				return
 			}
-			if !hasSingleTextChild(n) {
+			if isSpecialContentElement(n) || !hasSingleTextChild(n) {
 				if err = printIndent(w, level); err != nil {
 					return
 				}

@@ -62,6 +62,20 @@ func TestFormat(t *testing.T) {
 </ul>
 `,
 		},
+		{
+			name: "style content is indented consistently",
+			input: `<style>
+body {
+  text-color: red;
+}
+</style>`,
+			expected: `<style>
+  body {
+    text-color: red;
+  }
+</style>
+`,
+		},
 	}
 
 	for _, test := range tests {
