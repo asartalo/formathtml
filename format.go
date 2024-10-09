@@ -155,7 +155,7 @@ func printNode(w io.Writer, n *html.Node, level int) (err error) {
 					if _, err = fmt.Fprintln(w); err != nil {
 						return
 					}
-					if err = printIndent(w, level+1); err != nil {
+					if err = printIndent(w, level); err != nil {
 						return
 					}
 					if _, err = fmt.Fprint(w, t); err != nil {
@@ -250,6 +250,6 @@ func printChildren(w io.Writer, n *html.Node, level int) (err error) {
 }
 
 func printIndent(w io.Writer, level int) (err error) {
-	_, err = fmt.Fprint(w, strings.Repeat(" ", level))
+	_, err = fmt.Fprint(w, strings.Repeat("  ", level))
 	return err
 }
