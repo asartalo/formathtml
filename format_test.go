@@ -7,7 +7,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 )
 
-func TestFormat(t *testing.T) {
+func TestFragmentFormat(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    string
@@ -86,6 +86,46 @@ body {
 			r := strings.NewReader(test.input)
 			w := new(strings.Builder)
 			if err := Fragment(w, r); err != nil {
+				t.Fatalf("failed to format: %v", err)
+			}
+			if diff := cmp.Diff(test.expected, w.String()); diff != "" {
+				t.Error(diff)
+			}
+		})
+	}
+}
+
+func TestDocumentFormat(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name: "respects doctype declarations",
+			input: `<!doctype html>
+<html><head></head><body><h1>Hello</h1></body></html>
+`,
+			expected: `<!doctype html>
+<html>
+  <head>
+  </head>
+  <body>
+    <h1>Hello</h1>
+  </body>
+</html>
+`,
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			r := strings.NewReader(test.input)
+			w := new(strings.Builder)
+			if err := Document(w, r); err != nil {
 				t.Fatalf("failed to format: %v", err)
 			}
 			if diff := cmp.Diff(test.expected, w.String()); diff != "" {

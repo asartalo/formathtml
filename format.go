@@ -230,7 +230,15 @@ func printNode(w io.Writer, n *html.Node, level int) (err error) {
 		if err = printChildren(w, n, level); err != nil {
 			return
 		}
-	case html.DoctypeNode, html.DocumentNode:
+	case html.DoctypeNode:
+		if _, err = fmt.Fprintf(w, "<!doctype %s>\n", n.Data); err != nil {
+			return
+		}
+
+		if err = printChildren(w, n, level); err != nil {
+			return
+		}
+	case html.DocumentNode:
 		if err = printChildren(w, n, level); err != nil {
 			return
 		}
