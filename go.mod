@@ -1,4 +1,4 @@
-module github.com/asartalo/htmlformat
+module github.com/a-h/htmlformat
 
 go 1.20
 
