@@ -1,4 +1,4 @@
-package htmlformat
+package formathtml
 
 import (
 	"strings"

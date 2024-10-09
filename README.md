@@ -1,4 +1,6 @@
-# htmlformat
+# formathtml
+
+This is a fork of [alanpearce/htmlformat](https://github.com/alanpearce/htmlformat) which is itself a fork of [a-h/htmlformat](https://github.com/a-h/htmlformat). I did this to change the indentation from one space `" "` to two spaces `"  "`. Also, I changed the module name because I am too dumb to deal with go.mod and replace problems.
 
 htmlformat is a Go package and CLI tool used to format HTML.
 
@@ -15,7 +17,7 @@ It does not aim to:
 To use the CLI, you can install with Go > 1.20.
 
 ```
-go install github.com/a-h/htmlformat/cmd/htmlformat@latest
+go install github.com/asartalo/formathtml@latest
 ```
 
 ## Usage
@@ -25,10 +27,10 @@ go install github.com/a-h/htmlformat/cmd/htmlformat@latest
 ```bash
 echo '<ol><li style="&"><em>A</em></li><li>B</li></ol>' | htmlformat
 <ol>
- <li style="&">
-  <em>A</em>
- </li>
- <li>B</li>
+  <li style="&">
+    <em>A</em>
+  </li>
+  <li>B</li>
 </ol>
 ```
 
