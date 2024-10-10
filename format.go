@@ -231,11 +231,11 @@ func printNode(w io.Writer, n *html.Node, level int) (err error) {
 			return
 		}
 	case html.DoctypeNode:
-		if _, err = fmt.Fprintf(w, "<!doctype %s>\n", n.Data); err != nil {
+		if err = html.Render(w, n); err != nil {
 			return
 		}
 
-		if err = printChildren(w, n, level); err != nil {
+		if _, err = fmt.Fprint(w, "\n"); err != nil {
 			return
 		}
 	case html.DocumentNode:
