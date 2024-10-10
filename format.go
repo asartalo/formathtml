@@ -201,7 +201,12 @@ func printNode(w io.Writer, n *html.Node, level int) (err error) {
 			}
 		}
 		if !isVoidElement(n) {
-			if err = printChildren(w, n, level+1); err != nil {
+			childLevel := level + 1
+			// Do not indent children of HTML elements
+			if n.DataAtom == atom.Html {
+				childLevel = level
+			}
+			if err = printChildren(w, n, childLevel); err != nil {
 				return
 			}
 			if isSpecialContentElement(n) || !hasSingleTextChild(n) {

@@ -104,15 +104,16 @@ func TestDocumentFormat(t *testing.T) {
 		{
 			name: "respects doctype declarations",
 			input: `<!DOCTYPE html>
-<html><head></head><body><h1>Hello</h1></body></html>
+<html><head><link rel="stylesheet" href="/style.css"></head><body><h1>Hello</h1></body></html>
 `,
 			expected: `<!DOCTYPE html>
 <html>
-  <head>
-  </head>
-  <body>
-    <h1>Hello</h1>
-  </body>
+<head>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <h1>Hello</h1>
+</body>
 </html>
 `,
 		},
