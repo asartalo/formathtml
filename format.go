@@ -45,7 +45,7 @@ func Nodes(w io.Writer, nodes []*html.Node) (err error) {
 
 // The <pre> tag indicates that the text within it should always be formatted
 // as is. See https://github.com/ericchiang/pup/issues/33
-func printPre(w io.Writer, n *html.Node) (err error) {
+func printPreChild(w io.Writer, n *html.Node) (err error) {
 	switch n.Type {
 	case html.TextNode:
 		s := n.Data
@@ -53,7 +53,7 @@ func printPre(w io.Writer, n *html.Node) (err error) {
 			return
 		}
 		for c := n.FirstChild; c != nil; c = c.NextSibling {
-			if err = printPre(w, c); err != nil {
+			if err = printPreChild(w, c); err != nil {
 				return
 			}
 		}
@@ -72,7 +72,7 @@ func printPre(w io.Writer, n *html.Node) (err error) {
 		}
 		if !isVoidElement(n) {
 			for c := n.FirstChild; c != nil; c = c.NextSibling {
-				if err = printPre(w, c); err != nil {
+				if err = printPreChild(w, c); err != nil {
 					return
 				}
 			}
@@ -86,13 +86,13 @@ func printPre(w io.Writer, n *html.Node) (err error) {
 			return
 		}
 		for c := n.FirstChild; c != nil; c = c.NextSibling {
-			if err = printPre(w, c); err != nil {
+			if err = printPreChild(w, c); err != nil {
 				return
 			}
 		}
 	case html.DoctypeNode, html.DocumentNode:
 		for c := n.FirstChild; c != nil; c = c.NextSibling {
-			if err = printPre(w, c); err != nil {
+			if err = printPreChild(w, c); err != nil {
 				return
 			}
 		}
@@ -139,115 +139,151 @@ func hasSingleTextChild(n *html.Node) bool {
 func printNode(w io.Writer, n *html.Node, level int) (err error) {
 	switch n.Type {
 	case html.TextNode:
-		s := n.Data
-		s = strings.TrimSpace(s)
-		if s != "" {
-			if !isSpecialContentElement(n.Parent) && !hasSingleTextChild(n.Parent) &&
-				(n.PrevSibling == nil || !unicode.IsPunct(getFirstRune(s))) {
-				if err = printIndent(w, level); err != nil {
-					return
-				}
+		return printTextNode(w, n, level)
+	case html.ElementNode:
+		return printElementNode(w, n, level)
+	case html.CommentNode:
+		return printCommentNode(w, n, level)
+	case html.DoctypeNode:
+		return printDoctypeNode(w, n, level)
+	case html.DocumentNode:
+		return printChildren(w, n, level)
+	}
+	return
+}
+
+func printDoctypeNode(w io.Writer, n *html.Node, level int) (err error) {
+	if err = html.Render(w, n); err != nil {
+		return
+	}
+
+	_, err = fmt.Fprint(w, "\n")
+	return
+}
+
+func printCommentNode(w io.Writer, n *html.Node, level int) (err error) {
+	if err = printIndent(w, level); err != nil {
+		return
+	}
+	if _, err = fmt.Fprintf(w, "<!--%s-->\n", n.Data); err != nil {
+		return
+	}
+
+	return printChildren(w, n, level)
+
+}
+
+func printTextNode(w io.Writer, n *html.Node, level int) (err error) {
+	s := n.Data
+	s = strings.TrimSpace(s)
+	if s != "" {
+		if !isSpecialContentElement(n.Parent) && !hasSingleTextChild(n.Parent) &&
+			(n.PrevSibling == nil || !unicode.IsPunct(getFirstRune(s))) {
+			if err = printIndent(w, level); err != nil {
+				return
 			}
-			if isSpecialContentElement(n.Parent) {
-				scanner := bufio.NewScanner(strings.NewReader(s))
-				for scanner.Scan() {
-					t := scanner.Text()
-					if _, err = fmt.Fprintln(w); err != nil {
-						return
-					}
-					if err = printIndent(w, level); err != nil {
-						return
-					}
-					if _, err = fmt.Fprint(w, t); err != nil {
-						return
-					}
-				}
-				if err = scanner.Err(); err != nil {
-					return
-				}
+		}
+		if isSpecialContentElement(n.Parent) {
+			scanner := bufio.NewScanner(strings.NewReader(s))
+			for scanner.Scan() {
+				t := scanner.Text()
 				if _, err = fmt.Fprintln(w); err != nil {
 					return
 				}
-			} else {
-				if _, err = fmt.Fprint(w, s); err != nil {
-					return
-				}
-				if !hasSingleTextChild(n.Parent) {
-					if _, err = fmt.Fprint(w, "\n"); err != nil {
-						return
-					}
-				}
-			}
-		}
-	case html.ElementNode:
-		if err = printIndent(w, level); err != nil {
-			return
-		}
-		if _, err = fmt.Fprintf(w, "<%s", n.Data); err != nil {
-			return
-		}
-		for _, a := range n.Attr {
-			val := html.EscapeString(a.Val)
-			if _, err = fmt.Fprintf(w, ` %s="%s"`, a.Key, val); err != nil {
-				return
-			}
-		}
-		if _, err = fmt.Fprint(w, ">"); err != nil {
-			return
-		}
-		if !hasSingleTextChild(n) {
-			if _, err = fmt.Fprint(w, "\n"); err != nil {
-				return
-			}
-		}
-		if !isVoidElement(n) {
-			childLevel := level + 1
-			// Do not indent children of HTML elements
-			if n.DataAtom == atom.Html {
-				childLevel = level
-			}
-			if err = printChildren(w, n, childLevel); err != nil {
-				return
-			}
-			if isSpecialContentElement(n) || !hasSingleTextChild(n) {
 				if err = printIndent(w, level); err != nil {
 					return
 				}
+				if _, err = fmt.Fprint(w, t); err != nil {
+					return
+				}
 			}
-			if _, err = fmt.Fprintf(w, "</%s>", n.Data); err != nil {
+			if err = scanner.Err(); err != nil {
 				return
 			}
-
-			if n.NextSibling == nil ||
-				(!unicode.IsPunct(getFirstRune(n.NextSibling.Data)) || n.NextSibling.Type == html.ElementNode) {
+			if _, err = fmt.Fprintln(w); err != nil {
+				return
+			}
+		} else {
+			if _, err = fmt.Fprint(w, s); err != nil {
+				return
+			}
+			if !hasSingleTextChild(n.Parent) {
 				if _, err = fmt.Fprint(w, "\n"); err != nil {
 					return
 				}
 			}
 		}
-	case html.CommentNode:
-		if err = printIndent(w, level); err != nil {
-			return
-		}
-		if _, err = fmt.Fprintf(w, "<!--%s-->\n", n.Data); err != nil {
-			return
-		}
-		if err = printChildren(w, n, level); err != nil {
-			return
-		}
-	case html.DoctypeNode:
-		if err = html.Render(w, n); err != nil {
-			return
-		}
+	}
+	return
+}
 
-		if _, err = fmt.Fprint(w, "\n"); err != nil {
-			return
-		}
-	case html.DocumentNode:
-		if err = printChildren(w, n, level); err != nil {
+func printOpeningTag(w io.Writer, n *html.Node) (err error) {
+	if _, err = fmt.Fprintf(w, "<%s", n.Data); err != nil {
+		return
+	}
+
+	for _, a := range n.Attr {
+		val := html.EscapeString(a.Val)
+		if _, err = fmt.Fprintf(w, ` %s="%s"`, a.Key, val); err != nil {
 			return
 		}
 	}
+
+	_, err = fmt.Fprint(w, ">")
+
+	return
+}
+
+func printElementNode(w io.Writer, n *html.Node, level int) (err error) {
+	if err = printIndent(w, level); err != nil {
+		return
+	}
+
+	if err = printOpeningTag(w, n); err != nil {
+		return
+	}
+
+	if !hasSingleTextChild(n) && n.DataAtom != atom.Pre {
+		if _, err = fmt.Fprint(w, "\n"); err != nil {
+			return
+		}
+	}
+
+	if !isVoidElement(n) {
+		childLevel := level + 1
+		// Do not indent children of HTML elements
+		if n.DataAtom == atom.Html {
+			childLevel = level
+		}
+		if n.DataAtom == atom.Pre {
+			for c := n.FirstChild; c != nil; c = c.NextSibling {
+				if err = printPreChild(w, c); err != nil {
+					return
+				}
+			}
+		} else {
+			if err = printChildren(w, n, childLevel); err != nil {
+				return
+			}
+
+			if isSpecialContentElement(n) || !hasSingleTextChild(n) {
+				if err = printIndent(w, level); err != nil {
+					return
+				}
+			}
+		}
+		if _, err = fmt.Fprintf(w, "</%s>", n.Data); err != nil {
+			return
+		}
+
+		if n.NextSibling == nil ||
+			(!unicode.IsPunct(getFirstRune(n.NextSibling.Data)) || n.NextSibling.Type == html.ElementNode) {
+			if _, err = fmt.Fprint(w, "\n"); err != nil {
+				return
+			}
+		}
+	}
+
 	return
 }
 

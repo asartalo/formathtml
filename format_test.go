@@ -76,6 +76,16 @@ body {
 </style>
 `,
 		},
+		{
+			name: "pre formats as is",
+			input: `<div><pre>Foo bar
+silk <span class="foo">bar</span></pre></div>`,
+			expected: `<div>
+  <pre>Foo bar
+silk <span class="foo">bar</span></pre>
+</div>
+`,
+		},
 	}
 
 	for _, test := range tests {
