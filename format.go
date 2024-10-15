@@ -109,6 +109,7 @@ func isVoidElement(n *html.Node) bool {
 		atom.Meta, atom.Param, atom.Source, atom.Track, atom.Wbr:
 		return true
 	}
+
 	return false
 }
 
@@ -120,6 +121,15 @@ func isSpecialContentElement(n *html.Node) bool {
 			return true
 		}
 	}
+	return false
+}
+
+func isParagraphLike(n *html.Node) bool {
+	switch n.DataAtom {
+	case atom.P, atom.Caption, atom.Figcaption:
+		return true
+	}
+
 	return false
 }
 
@@ -243,7 +253,9 @@ func printElementNode(w io.Writer, n *html.Node, level int) (err error) {
 		return
 	}
 
-	if !hasSingleTextChild(n) && n.DataAtom != atom.Pre {
+	para := isParagraphLike(n)
+
+	if para || (!hasSingleTextChild(n) && n.DataAtom != atom.Pre) {
 		if _, err = fmt.Fprint(w, "\n"); err != nil {
 			return
 		}
@@ -262,11 +274,20 @@ func printElementNode(w io.Writer, n *html.Node, level int) (err error) {
 				}
 			}
 		} else {
-			if err = printChildren(w, n, childLevel); err != nil {
-				return
-			}
+			if para {
+				if err = printParagraphChildren(w, n, childLevel); err != nil {
+					return
+				}
+				if _, err = fmt.Fprint(w, "\n"); err != nil {
+					return
+				}
+			} else {
+				if err = printChildren(w, n, childLevel); err != nil {
+					return
+				}
 
-			if isSpecialContentElement(n) || !hasSingleTextChild(n) {
+			}
+			if para || isSpecialContentElement(n) || !hasSingleTextChild(n) {
 				if err = printIndent(w, level); err != nil {
 					return
 				}
@@ -287,6 +308,56 @@ func printElementNode(w io.Writer, n *html.Node, level int) (err error) {
 	return
 }
 
+func printParagraphChildren(w io.Writer, n *html.Node, level int) (err error) {
+	child := n.FirstChild
+	var col uint = 0
+	for child != nil {
+		if col, err = printParagraphNode(w, child, level, col); err != nil {
+			return
+		}
+		child = child.NextSibling
+	}
+	return
+}
+
+const paragraphLength = 100
+
+func printParagraphNode(w io.Writer, n *html.Node, level int, col uint) (colAfter uint, err error) {
+	switch n.Type {
+	case html.TextNode:
+		return printParagraphTextNode(w, n, level, col)
+	case html.ElementNode:
+		err = printElementNode(w, n, level)
+	case html.CommentNode:
+		err = printCommentNode(w, n, level)
+	case html.DoctypeNode:
+		err = printDoctypeNode(w, n, level)
+	case html.DocumentNode:
+		err = printChildren(w, n, level)
+	}
+
+	return
+}
+
+func printParagraphTextNode(w io.Writer, n *html.Node, level int, col uint) (colAfter uint, err error) {
+	s := n.Data
+	s = strings.TrimSpace(s)
+	if s != "" {
+		WrapString(s, w, WrapOptions{
+			Limit:       paragraphLength,
+			StartsAt:    col,
+			Indentation: indentAtLevel(level),
+		})
+		if !hasSingleTextChild(n.Parent) {
+			if _, err = fmt.Fprint(w, "\n"); err != nil {
+				return
+			}
+		}
+	}
+
+	return
+}
+
 func printChildren(w io.Writer, n *html.Node, level int) (err error) {
 	child := n.FirstChild
 	for child != nil {
@@ -298,7 +369,11 @@ func printChildren(w io.Writer, n *html.Node, level int) (err error) {
 	return
 }
 
+func indentAtLevel(level int) string {
+	return strings.Repeat("  ", level)
+}
+
 func printIndent(w io.Writer, level int) (err error) {
-	_, err = fmt.Fprint(w, strings.Repeat("  ", level))
+	_, err = fmt.Fprint(w, indentAtLevel(level))
 	return err
 }

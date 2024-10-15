@@ -86,6 +86,18 @@ silk <span class="foo">bar</span></pre>
 </div>
 `,
 		},
+		{
+			name:  "paragraph with long text wraps at about 100-character limit",
+			input: `<div><p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Cras in blandit odio, eget gravida eros. In tincidunt, dolor nec blandit elementum, lacus metus semper lacus, id elementum augue ipsum in est. Vivamus tempor orci eget augue faucibus efficitur.</p></div>`,
+			expected: `<div>
+  <p>
+    Lorem ipsum dolor sit amet, consectetur adipiscing elit. Cras in blandit odio, eget gravida eros. In
+    tincidunt, dolor nec blandit elementum, lacus metus semper lacus, id elementum augue ipsum in est.
+    Vivamus tempor orci eget augue faucibus efficitur.
+  </p>
+</div>
+`,
+		},
 	}
 
 	for _, test := range tests {
