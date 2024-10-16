@@ -70,7 +70,7 @@ func printPreChild(w io.Writer, n *html.Node) (err error) {
 		if _, err = fmt.Fprint(w, ">"); err != nil {
 			return
 		}
-		if !isVoidElement(n) {
+		if !isEmptyElement(n) {
 			for c := n.FirstChild; c != nil; c = c.NextSibling {
 				if err = printPreChild(w, c); err != nil {
 					return
@@ -102,7 +102,7 @@ func printPreChild(w io.Writer, n *html.Node) (err error) {
 
 // Is this node a tag with no end tag such as <meta> or <br>?
 // http://www.w3.org/TR/html-markup/syntax.html#syntax-elements
-func isVoidElement(n *html.Node) bool {
+func isEmptyElement(n *html.Node) bool {
 	switch n.DataAtom {
 	case atom.Area, atom.Base, atom.Br, atom.Col, atom.Command, atom.Embed,
 		atom.Hr, atom.Img, atom.Input, atom.Keygen, atom.Link,
@@ -111,6 +111,10 @@ func isVoidElement(n *html.Node) bool {
 	}
 
 	return false
+}
+
+func isNonEmptyElement(n *html.Node) bool {
+	return !isEmptyElement(n)
 }
 
 func isSpecialContentElement(n *html.Node) bool {
@@ -131,6 +135,10 @@ func isParagraphLike(n *html.Node) bool {
 	}
 
 	return false
+}
+
+func isPre(n *html.Node) bool {
+	return n.DataAtom == atom.Pre
 }
 
 func isEmptyTextNode(n *html.Node) bool {
@@ -245,52 +253,91 @@ func printOpeningTag(w io.Writer, n *html.Node) (err error) {
 }
 
 func printElementNode(w io.Writer, n *html.Node, level int) (err error) {
-	if err = printIndent(w, level); err != nil {
-		return
-	}
+	switch {
+	case isPre(n):
+		if err = printIndent(w, level); err != nil {
+			return
+		}
 
-	if err = printOpeningTag(w, n); err != nil {
-		return
-	}
+		if err = printOpeningTag(w, n); err != nil {
+			return
+		}
 
-	para := isParagraphLike(n)
-
-	if para || (!hasSingleTextChild(n) && n.DataAtom != atom.Pre) {
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			if err = printPreChild(w, c); err != nil {
+				return
+			}
+		}
+		if _, err = fmt.Fprintf(w, "</%s>", n.Data); err != nil {
+			return
+		}
 		if _, err = fmt.Fprint(w, "\n"); err != nil {
 			return
 		}
-	}
+	case isParagraphLike(n):
+		if err = printIndent(w, level); err != nil {
+			return
+		}
 
-	if !isVoidElement(n) {
+		if err = printOpeningTag(w, n); err != nil {
+			return
+		}
+		if _, err = fmt.Fprint(w, "\n"); err != nil {
+			return
+		}
+		childLevel := level + 1
+		if err = printParagraphChildren(w, n, childLevel); err != nil {
+			return
+		}
+		if _, err = fmt.Fprint(w, "\n"); err != nil {
+			return
+		}
+		if err = printIndent(w, level); err != nil {
+			return
+		}
+		if _, err = fmt.Fprintf(w, "</%s>", n.Data); err != nil {
+			return
+		}
+		if _, err = fmt.Fprint(w, "\n"); err != nil {
+			return
+		}
+	case isEmptyElement(n):
+		if err = printIndent(w, level); err != nil {
+			return
+		}
+
+		if err = printOpeningTag(w, n); err != nil {
+			return
+		}
+
+		if _, err = fmt.Fprint(w, "\n"); err != nil {
+			return
+		}
+	default:
 		childLevel := level + 1
 		// Do not indent children of HTML elements
 		if n.DataAtom == atom.Html {
 			childLevel = level
 		}
-		if n.DataAtom == atom.Pre {
-			for c := n.FirstChild; c != nil; c = c.NextSibling {
-				if err = printPreChild(w, c); err != nil {
-					return
-				}
-			}
-		} else {
-			if para {
-				if err = printParagraphChildren(w, n, childLevel); err != nil {
-					return
-				}
-				if _, err = fmt.Fprint(w, "\n"); err != nil {
-					return
-				}
-			} else {
-				if err = printChildren(w, n, childLevel); err != nil {
-					return
-				}
+		if err = printIndent(w, level); err != nil {
+			return
+		}
 
+		if err = printOpeningTag(w, n); err != nil {
+			return
+		}
+
+		if !hasSingleTextChild(n) {
+			if _, err = fmt.Fprint(w, "\n"); err != nil {
+				return
 			}
-			if para || isSpecialContentElement(n) || !hasSingleTextChild(n) {
-				if err = printIndent(w, level); err != nil {
-					return
-				}
+		}
+		if err = printChildren(w, n, childLevel); err != nil {
+			return
+		}
+		if isSpecialContentElement(n) || !hasSingleTextChild(n) {
+			if err = printIndent(w, level); err != nil {
+				return
 			}
 		}
 		if _, err = fmt.Fprintf(w, "</%s>", n.Data); err != nil {
