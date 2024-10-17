@@ -12,6 +12,26 @@ import (
 	"golang.org/x/net/html/atom"
 )
 
+const indentString = "  "
+const paragraphLength = 100
+
+type NodePrinter func(w io.Writer, n *html.Node, level int) (err error)
+type NodePrinterAndContext[T comparable] func(w io.Writer, n *html.Node, level int, value T) (err error)
+type Conditional func(n *html.Node) bool
+type ConditionalAndContext[T comparable] func(n *html.Node, value T) bool
+
+func printWithContext[T comparable](value T, printer NodePrinterAndContext[T]) NodePrinter {
+	return func(w io.Writer, n *html.Node, level int) (err error) {
+		return printer(w, n, level, value)
+	}
+}
+
+func conditionWithContext[T comparable](value T, cond ConditionalAndContext[T]) Conditional {
+	return func(n *html.Node) bool {
+		return cond(n, value)
+	}
+}
+
 // Document formats a HTML document.
 func Document(w io.Writer, r io.Reader) (err error) {
 	node, err := html.Parse(r)
@@ -48,55 +68,25 @@ func Nodes(w io.Writer, nodes []*html.Node) (err error) {
 func printPreChild(w io.Writer, n *html.Node, level int) (err error) {
 	switch n.Type {
 	case html.TextNode:
-		s := n.Data
-		if _, err = fmt.Fprint(w, s); err != nil {
-			return
-		}
-		for c := n.FirstChild; c != nil; c = c.NextSibling {
-			if err = printPreChild(w, c, level); err != nil {
-				return
-			}
-		}
+		return runPrinters(
+			printData,
+			printDelegateChildren(printPreChild),
+		)(w, n, level)
+
 	case html.ElementNode:
-		if _, err = fmt.Fprintf(w, "<%s", n.Data); err != nil {
-			return
-		}
-		for _, a := range n.Attr {
-			val := html.EscapeString(a.Val)
-			if _, err = fmt.Fprintf(w, ` %s="%s"`, a.Key, val); err != nil {
-				return
-			}
-		}
-		if _, err = fmt.Fprint(w, ">"); err != nil {
-			return
-		}
-		if !isEmptyElement(n) {
-			for c := n.FirstChild; c != nil; c = c.NextSibling {
-				if err = printPreChild(w, c, level); err != nil {
-					return
-				}
-			}
-			if err = printClosingTag(w, n, 0); err != nil {
-				return
-			}
-		}
+		return runPrinters(
+			printOpeningTag,
+			printIf(isNonEmptyElement, printDelegateChildren(printPreChild)),
+			printIf(isNonEmptyElement, printClosingTag),
+		)(w, n, level)
+
 	case html.CommentNode:
-		data := n.Data
-		if _, err = fmt.Fprintf(w, "<!--%s-->\n", data); err != nil {
-			return
-		}
-		for c := n.FirstChild; c != nil; c = c.NextSibling {
-			if err = printPreChild(w, c, level); err != nil {
-				return
-			}
-		}
+		return printCommentNode(w, n, level)
+
 	case html.DoctypeNode, html.DocumentNode:
-		for c := n.FirstChild; c != nil; c = c.NextSibling {
-			if err = printPreChild(w, c, level); err != nil {
-				return
-			}
-		}
+		return printDelegateChildren(printPreChild)(w, n, level)
 	}
+
 	return
 }
 
@@ -128,6 +118,10 @@ func isSpecialContentElement(n *html.Node) bool {
 	return false
 }
 
+func isChildOfSpecialContentElement(n *html.Node) bool {
+	return isSpecialContentElement(n.Parent)
+}
+
 func isParagraphLike(n *html.Node) bool {
 	switch n.DataAtom {
 	case atom.P, atom.Caption, atom.Figcaption:
@@ -154,12 +148,20 @@ func hasSingleTextChild(n *html.Node) bool {
 	return n != nil && n.FirstChild != nil && n.FirstChild == n.LastChild && n.FirstChild.Type == html.TextNode
 }
 
+func isSingleTextChild(n *html.Node) bool {
+	return hasSingleTextChild(n.Parent)
+}
+
 func isHtmlElement(n *html.Node) bool {
 	return n.DataAtom == atom.Html
 }
 
 func noNextSibling(n *html.Node) bool {
 	return n.NextSibling == nil
+}
+
+func noPrevSibling(n *html.Node) bool {
+	return n.PrevSibling == nil
 }
 
 func nextSiblingIsNotPunctuation(n *html.Node) bool {
@@ -169,9 +171,6 @@ func nextSiblingIsNotPunctuation(n *html.Node) bool {
 func nextSiblingIsElementNode(n *html.Node) bool {
 	return n.NextSibling.Type == html.ElementNode
 }
-
-type NodePrinter func(w io.Writer, n *html.Node, level int) (err error)
-type Conditional func(n *html.Node) bool
 
 func printNode(w io.Writer, n *html.Node, level int) (err error) {
 	switch n.Type {
@@ -201,25 +200,25 @@ func printCommentNode(w io.Writer, n *html.Node, level int) (err error) {
 	if err = printIndent(w, n, level); err != nil {
 		return
 	}
-	if _, err = fmt.Fprintf(w, "<!--%s-->\n", n.Data); err != nil {
-		return
-	}
 
-	return printChildren(w, n, level)
+	_, err = fmt.Fprintf(w, "<!--%s-->\n", n.Data)
 
+	return
 }
 
 func printTextNode(w io.Writer, n *html.Node, level int) (err error) {
 	s := n.Data
 	s = strings.TrimSpace(s)
 	if s != "" {
-		if !isSpecialContentElement(n.Parent) && !hasSingleTextChild(n.Parent) &&
-			(n.PrevSibling == nil || !unicode.IsPunct(getFirstRune(s))) {
+		if !isChildOfSpecialContentElement(n) && !isSingleTextChild(n) &&
+			(noPrevSibling(n) || conditionWithContext(s, func(n *html.Node, str string) bool {
+				return !unicode.IsPunct(getFirstRune(s))
+			})(n)) {
 			if err = printIndent(w, n, level); err != nil {
 				return
 			}
 		}
-		if isSpecialContentElement(n.Parent) {
+		if isChildOfSpecialContentElement(n) {
 			scanner := bufio.NewScanner(strings.NewReader(s))
 			for scanner.Scan() {
 				t := scanner.Text()
@@ -243,7 +242,7 @@ func printTextNode(w io.Writer, n *html.Node, level int) (err error) {
 			if _, err = fmt.Fprint(w, s); err != nil {
 				return
 			}
-			if !hasSingleTextChild(n.Parent) {
+			if !isSingleTextChild(n) {
 				if err = printNewLine(w, n, level); err != nil {
 					return
 				}
@@ -277,6 +276,11 @@ func printClosingTag(w io.Writer, n *html.Node, _ int) (err error) {
 
 func printNewLine(w io.Writer, _ *html.Node, _ int) (err error) {
 	_, err = fmt.Fprint(w, "\n")
+	return
+}
+
+func printData(w io.Writer, n *html.Node, _ int) (err error) {
+	_, err = fmt.Fprint(w, n.Data)
 	return
 }
 
@@ -412,8 +416,6 @@ func printParagraphChildren(w io.Writer, n *html.Node, level int) (err error) {
 	return
 }
 
-const paragraphLength = 100
-
 func printParagraphNode(w io.Writer, n *html.Node, level int, col uint) (colAfter uint, err error) {
 	switch n.Type {
 	case html.TextNode:
@@ -462,7 +464,7 @@ func printChildren(w io.Writer, n *html.Node, level int) (err error) {
 }
 
 func indentAtLevel(level int) string {
-	return strings.Repeat("  ", level)
+	return strings.Repeat(indentString, level)
 }
 
 func printIndent(w io.Writer, _ *html.Node, level int) (err error) {
