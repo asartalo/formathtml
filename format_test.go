@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestFragmentFormat(t *testing.T) {
@@ -88,7 +89,7 @@ silk <span class="foo">bar</span></pre>
 		},
 		{
 			name:  "paragraph with long text wraps at about 100-character limit",
-			input: `<div><p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Cras in blandit odio, eget gravida eros. In tincidunt, dolor nec blandit elementum, lacus metus semper lacus, id elementum augue ipsum in est. Vivamus tempor orci eget augue faucibus efficitur.</p></div>`,
+			input: `<div><p> Lorem ipsum dolor sit amet, consectetur adipiscing elit. Cras in blandit odio, eget gravida eros. In tincidunt, dolor nec blandit elementum, lacus metus semper lacus, id elementum augue ipsum in est. Vivamus tempor orci eget augue faucibus efficitur. </p></div>`,
 			expected: `<div>
   <p>
     Lorem ipsum dolor sit amet, consectetur adipiscing elit. Cras in blandit odio, eget gravida eros. In
@@ -98,6 +99,42 @@ silk <span class="foo">bar</span></pre>
 </div>
 `,
 		},
+		{
+			name:  "paragraph 'inline' elements are paragraph formatted",
+			input: `<div><p>Lorem ipsum <strong>dolor sit amet</strong>, consectetur adipiscing elit.</p></div>`,
+			expected: `<div>
+  <p>
+    Lorem ipsum <strong>dolor sit amet</strong>, consectetur adipiscing elit.
+  </p>
+</div>
+`,
+		},
+		{
+			name:  "paragraph child elements are properly spaced",
+			input: `<p>This <span> include </span> spaces please. This<i>is </i>weird. <em> Boo</em>.</p>`,
+			expected: `<p>
+  This <span> include </span> spaces please. This<i>is </i>weird. <em> Boo</em>.
+</p>
+`,
+		},
+		{
+			name:  "paragraph empty child element attributes are properly wrapped",
+			input: `<p>See <b classs="red">image tag</b>. Something <img src="https://this.url.is/okay">What now?</p>`,
+			expected: `<p>
+  See <b classs="red">image tag</b>. Something <img src="https://this.url.is/okay">What now?
+</p>
+`,
+		},
+		{
+			name:  "paragraph child element attributes are properly wrapped",
+			input: `<p>See <b classs="red">image tag</b>. Something <img src="https://this.url.is/too-long-aaaaaaaaaaaaa-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-aaaaaaaaaaaaaaaaaaaaaaa-aaaaaaaaaaaaaaaaaaaaa-aaaaaaaaa-aaaaaaaaaaaaaaaaaaaa-aaa" >What now?</p>`,
+			expected: `<p>
+  See <b classs="red">image tag</b>. Something <img
+  src="https://this.url.is/too-long-aaaaaaaaaaaaa-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-aaaaaaaaaaaaaaaaaaaaaaa-aaaaaaaaaaaaaaaaaaaaa-aaaaaaaaa-aaaaaaaaaaaaaaaaaaaa-aaa"
+  >What now?
+</p>
+`,
+		},
 	}
 
 	for _, test := range tests {
@@ -105,14 +142,19 @@ silk <span class="foo">bar</span></pre>
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
+			if strings.Contains(test.input, "Something") {
+				Klog = true
+			}
 			r := strings.NewReader(test.input)
 			w := new(strings.Builder)
+
 			if err := Fragment(w, r); err != nil {
 				t.Fatalf("failed to format: %v", err)
 			}
-			if diff := cmp.Diff(test.expected, w.String()); diff != "" {
-				t.Error(diff)
+			if strings.Contains(test.input, "Something") {
+				Klog = false
 			}
+			assert.Equal(t, test.expected, w.String())
 		})
 	}
 }

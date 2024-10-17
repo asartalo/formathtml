@@ -27,7 +27,7 @@
 package formathtml
 
 import (
-	"bytes"
+	"fmt"
 	"io"
 	"unicode"
 	"unicode/utf8"
@@ -51,82 +51,439 @@ func runeToUtf8(r rune) []byte {
 	return bs
 }
 
-// WrapString wraps the given string within lim width in characters.
-//
-// Wrapping is currently naive and only happens at white-space. A future
-// version of the library will implement smarter wrapping. This means that
-// pathological cases can dramatically reach past the limit, such as a very
-// long word. startsAt
-func WrapString(s string, writer io.Writer, options WrapOptions) {
-	// Initialize a buffer with a slightly larger size to account for breaks
-	lim := options.Limit
-	indentation := options.Indentation
-	startsAt := options.StartsAt
-	indentBytes := []byte(indentation)
+type WordWrapType int
 
-	var current = startsAt
-	var wordBuf, spaceBuf bytes.Buffer
-	var wordBufLen, spaceBufLen uint
+const (
+	NullUnit WordWrapType = iota
+	Spaces
+	NewLine
+	Word
+)
 
-	if len(indentation) > 0 && startsAt == 0 {
-		writer.Write(indentBytes)
+func lableWType(t WordWrapType) string {
+	switch t {
+	case Spaces:
+		return "Spaces"
+	case NewLine:
+		return "NewLine"
+	case Word:
+		return "Word"
 	}
+
+	return "NullUnit"
+}
+
+type WrapUnit struct {
+	value []byte
+	typ   WordWrapType
+	width uint
+}
+
+func (unit WrapUnit) Merge(other WrapUnit) WrapUnit {
+	if unit.typ == NullUnit {
+		return other
+	}
+
+	if unit.typ != other.typ {
+		return unit
+	}
+
+	if unit.typ == NewLine {
+		return unit
+	}
+
+	return WrapUnit{
+		value: append(unit.value, other.value...),
+		typ:   unit.typ,
+		width: unit.width + other.width,
+	}
+}
+
+func (unit WrapUnit) IsNull() bool {
+	return unit.typ == NullUnit
+}
+
+var newlineUnit = WrapUnit{typ: NewLine, value: newlineBytes, width: 0}
+var nullUnit = WrapUnit{typ: NullUnit}
+
+func wordToFeed(typ WordWrapType, str string) WrapUnit {
+	switch typ {
+	case NewLine:
+		return newlineUnit
+	case Word:
+		return WordUnit(str)
+	case Spaces:
+		return SpaceUnit(str)
+	}
+	return nullUnit
+}
+
+func FeedWordsForWrapping(s string, eater func(unit WrapUnit) uint) {
+	str := ""
+	var lastWordType WordWrapType
 
 	for _, char := range s {
+		var currentWordType WordWrapType
 		if char == '\n' {
-			if wordBuf.Len() == 0 {
-				if current+spaceBufLen > lim {
-					current = 0
-				} else {
-					current += spaceBufLen
-					spaceBuf.WriteTo(writer)
-				}
-				spaceBuf.Reset()
-				spaceBufLen = 0
-			} else {
-				current += spaceBufLen + wordBufLen
-				spaceBuf.WriteTo(writer)
-				spaceBuf.Reset()
-				spaceBufLen = 0
-				wordBuf.WriteTo(writer)
-				wordBuf.Reset()
-				wordBufLen = 0
-			}
-			writer.Write(runeToUtf8(char))
-			current = 0
+			currentWordType = NewLine
 		} else if unicode.IsSpace(char) && char != nbsp {
-			if spaceBuf.Len() == 0 || wordBuf.Len() > 0 {
-				current += spaceBufLen + wordBufLen
-				spaceBuf.WriteTo(writer)
-				spaceBuf.Reset()
-				spaceBufLen = 0
-				wordBuf.WriteTo(writer)
-				wordBuf.Reset()
-				wordBufLen = 0
-			}
-
-			spaceBuf.WriteRune(char)
-			spaceBufLen++
+			currentWordType = Spaces
 		} else {
-			wordBuf.WriteRune(char)
-			wordBufLen++
+			currentWordType = Word
+		}
 
-			if current+wordBufLen+spaceBufLen > lim && wordBufLen < lim {
-				writer.Write(runeToUtf8('\n'))
-				writer.Write(indentBytes)
-				current = 0
-				spaceBuf.Reset()
-				spaceBufLen = 0
+		if lastWordType != NullUnit {
+			if lastWordType != currentWordType || char == '\n' {
+				eater(wordToFeed(lastWordType, str))
+				str = ""
 			}
 		}
+
+		str += string(char)
+
+		lastWordType = currentWordType
 	}
 
-	if wordBuf.Len() == 0 {
-		if current+spaceBufLen <= lim {
-			spaceBuf.WriteTo(writer)
-		}
-	} else {
-		spaceBuf.WriteTo(writer)
-		wordBuf.WriteTo(writer)
+	if len(str) > 0 {
+		eater(wordToFeed(lastWordType, str))
 	}
+}
+
+type UnitPair struct {
+	Word              WrapUnit
+	LeadSpace         WrapUnit
+	precededByNewLine bool
+}
+
+func NewUnitPair(precededByNewLine bool) *UnitPair {
+	return &UnitPair{
+		Word:              nullUnit,
+		LeadSpace:         nullUnit,
+		precededByNewLine: precededByNewLine,
+	}
+}
+
+func (pair *UnitPair) isPrecededByNewLine() bool {
+	return pair.precededByNewLine
+}
+
+func (pair *UnitPair) IsNull() bool {
+	return pair.Word.IsNull() && pair.LeadSpace.IsNull()
+}
+
+func (pair *UnitPair) HasWord() bool {
+	return !pair.Word.IsNull()
+}
+
+func (pair *UnitPair) Width() uint {
+	return pair.Word.width + pair.LeadSpace.width
+}
+
+func (pair *UnitPair) WordWidth() uint {
+	return pair.Word.width
+}
+
+func (pair *UnitPair) AddSpace(unit WrapUnit) bool {
+	if unit.typ != Spaces {
+		return false
+	}
+
+	pair.LeadSpace = pair.LeadSpace.Merge(unit)
+	return true
+}
+
+func (pair *UnitPair) AddWord(unit WrapUnit) bool {
+	if unit.typ != Word {
+		return false
+	}
+
+	pair.Word = pair.Word.Merge(unit)
+	return true
+}
+
+func (pair *UnitPair) Write(writer io.Writer, withSpace bool) int {
+	var spaceLength int
+	var wrote []byte
+
+	if withSpace {
+		spaceLength, _ = writer.Write(pair.LeadSpace.value)
+		wrote = append(wrote, pair.LeadSpace.value...)
+	}
+	wordLength, _ := writer.Write(pair.Word.value)
+	wrote = append(wrote, pair.Word.value...)
+
+	return spaceLength + wordLength
+}
+
+type Line struct {
+	pairs []*UnitPair
+	width uint
+	limit uint
+}
+
+func NewLineObject(start uint, limit uint) *Line {
+	return &Line{
+		width: start,
+		limit: limit,
+	}
+}
+
+func (l *Line) AppendPair(pair *UnitPair) {
+	if pair.IsNull() {
+		return
+	}
+
+	var widthToUse uint
+	if len(l.pairs) == 0 && !pair.isPrecededByNewLine() {
+		widthToUse = pair.WordWidth()
+	} else {
+		widthToUse = pair.Width()
+	}
+
+	l.pairs = append(l.pairs, pair)
+	l.width += widthToUse
+}
+
+func (l *Line) IsLastPair(pair *UnitPair) bool {
+	return l.LastPair() == pair
+}
+
+func (l *Line) LastPair() *UnitPair {
+	length := len(l.pairs)
+	if length == 0 {
+		return nil
+	}
+
+	return l.pairs[length-1]
+}
+
+func (l *Line) Width() uint {
+	return l.width
+}
+
+func (l *Line) Preview() string {
+	lastIndex := len(l.pairs) - 1
+	b := []byte{}
+
+	for i, pair := range l.pairs {
+		if i == lastIndex && !pair.HasWord() { // do not print trailing spaces
+			break
+		}
+
+		b = append(b, pair.LeadSpace.value...)
+		b = append(b, pair.Word.value...)
+	}
+
+	return string(b)
+}
+
+func (l *Line) Write(writer io.Writer) int {
+	lastIndex := len(l.pairs) - 1
+	written := 0
+
+	for i, pair := range l.pairs {
+		if i == lastIndex && !pair.HasWord() { // do not print trailing spaces
+			break
+		}
+
+		length := pair.Write(writer, i > 0 || pair.isPrecededByNewLine())
+		written += length
+	}
+
+	return written
+}
+
+func (l *Line) IsPrecededByNewLine() bool {
+	if len(l.pairs) == 0 {
+		return false
+	}
+
+	return l.pairs[0].isPrecededByNewLine()
+}
+
+func (l *Line) NotEmpty() bool {
+	return l.width > 0
+}
+
+func (l *Line) Fits(width uint) bool {
+	return len(l.pairs) == 0 || l.width+width <= l.limit
+}
+
+func (l *Line) PairFits(pair *UnitPair) bool {
+	return l.Fits(pair.Width())
+}
+
+func (l *Line) Filled() bool {
+	return l.width >= l.limit
+}
+
+func (l *Line) PopLast() *UnitPair {
+	length := len(l.pairs)
+
+	if length == 0 {
+		return nil
+	}
+
+	lastPair := l.LastPair()
+	l.pairs = l.pairs[:(length - 1)]
+	l.width -= lastPair.Width()
+
+	return lastPair
+}
+
+type WordWrapper struct {
+	WrapOptions
+	Writer           io.Writer
+	Column           uint
+	started          bool
+	flushed          bool
+	indentationBytes []byte
+	lastUnit         WrapUnit
+	currentLine      *Line
+	currentPair      *UnitPair
+	filledLineLast   bool
+}
+
+func NewWordWrapper(writer io.Writer, options WrapOptions) *WordWrapper {
+	return &WordWrapper{
+		WrapOptions:      options,
+		Writer:           writer,
+		indentationBytes: []byte(options.Indentation),
+		lastUnit:         nullUnit,
+		currentPair:      NewUnitPair(true),
+		currentLine:      NewLineObject(options.StartsAt, options.Limit),
+	}
+}
+
+func (ww *WordWrapper) WrapString(s string) {
+	FeedWordsForWrapping(s, ww.AddUnit)
+	ww.FinalFlush()
+}
+
+func (ww *WordWrapper) FinalFlush() {
+	if ww.currentPair.HasWord() && !ww.currentLine.IsLastPair(ww.currentPair) {
+		ww.appendPair(ww.currentPair)
+	}
+
+	if ww.currentLine.NotEmpty() {
+		ww.flushLine()
+	}
+}
+
+var newlineBytes = []byte("\n")
+var spaceBytes = []byte(" ")
+
+func WordUnit(word string) WrapUnit {
+	return WrapUnit{
+		value: []byte(word),
+		typ:   Word,
+		width: uint(utf8.RuneCountInString(word)),
+	}
+}
+
+func SpaceUnit(spaces string) WrapUnit {
+	return WrapUnit{value: []byte(spaces), typ: Spaces, width: uint(utf8.RuneCountInString(spaces))}
+}
+
+func (ww *WordWrapper) AddWord(word string) uint {
+	return ww.AddUnit(WordUnit(word))
+}
+
+func (ww *WordWrapper) AddSpaces(spaces string) uint {
+	return ww.AddUnit(SpaceUnit(spaces))
+}
+
+func (ww *WordWrapper) AddNewLine() uint {
+	return ww.AddUnit(newlineUnit)
+}
+
+func unitValues(units []WrapUnit) string {
+	str := ""
+	for _, unit := range units {
+		str += fmt.Sprintf(" \"%s\" (%s)\n", string(unit.value), lableWType(unit.typ))
+	}
+
+	return str
+}
+
+func (ww *WordWrapper) AddUnit(unit WrapUnit) uint {
+	aNewLine := !ww.started || ww.lastUnit.typ == NewLine
+
+	switch unit.typ {
+	case NullUnit:
+		return 0
+
+	case NewLine:
+		if ww.currentPair.HasWord() && !ww.currentLine.IsLastPair(ww.currentPair) {
+			ww.appendPair(ww.currentPair)
+		}
+		if ww.lastUnit.typ != NewLine {
+			ww.flushLine()
+			ww.currentPair = NewUnitPair(true)
+		}
+
+		ww.writeNewLine()
+
+	case Spaces:
+		if ww.lastUnit.typ != Spaces {
+			if !ww.currentLine.PairFits(ww.currentPair) {
+				ww.flushLine()
+			}
+			if ww.currentPair.HasWord() {
+				ww.appendPair(ww.currentPair)
+			}
+			if ww.currentLine.Filled() {
+				ww.flushLine()
+			}
+			ww.currentPair = NewUnitPair(aNewLine)
+			ww.currentPair.AddSpace(unit)
+		}
+
+	case Word:
+		ww.currentPair.AddWord(unit)
+		if !ww.currentLine.PairFits(ww.currentPair) {
+			ww.flushLine()
+		}
+	}
+
+	ww.started = true
+	ww.lastUnit = unit
+	return 0
+}
+
+func (ww *WordWrapper) appendPair(pair *UnitPair) {
+	ww.currentLine.AppendPair(pair)
+}
+
+func (ww *WordWrapper) writeNewLine() {
+	ww.Writer.Write(newlineBytes)
+}
+
+func (ww *WordWrapper) flushLine() {
+	if !ww.currentLine.NotEmpty() {
+		return
+	}
+
+	if ww.flushed && !ww.currentLine.IsPrecededByNewLine() {
+		ww.writeNewLine()
+	}
+
+	if ww.flushed || ww.StartsAt == 0 {
+		ww.Writer.Write(ww.indentationBytes)
+	}
+	ww.filledLineLast = false
+	ww.currentLine.Write(ww.Writer)
+	ww.currentLine = NewLineObject(0, ww.Limit)
+	ww.flushed = true
+}
+
+func discardTrailingSpaces(line []WrapUnit) []WrapUnit {
+	lastIndex := len(line) - 1
+	for i := lastIndex; i > -1; i-- {
+		if line[i].typ != Spaces {
+			return line[:i+1]
+		}
+	}
+
+	return line
 }
