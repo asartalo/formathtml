@@ -410,16 +410,7 @@ func printElementNode(w io.Writer, n *html.Node, level int, col uint) (colAfter 
 		)(w, n, level, col)
 
 	case isParagraphLike(n, level, col):
-		return runPrinters(
-			printIndent,
-			printOpeningTag,
-			printNewLine,
-			incrementLevel(1, printParagraphChildren),
-			printNewLine,
-			printIndent,
-			printClosingTag,
-			printNewLine,
-		)(w, n, level, col)
+		return printParagraphLikeNode(w, n, level, col)
 
 	case isEmptyElement(n, level, col):
 		return runPrinters(
@@ -447,7 +438,41 @@ func printElementNode(w io.Writer, n *html.Node, level int, col uint) (colAfter 
 			),
 		)(w, n, level, col)
 	}
+}
 
+func printParagraphLikeNode(w io.Writer, n *html.Node, level int, col uint) (colAfter uint, err error) {
+	return runPrinters(
+		printIndent,
+		printOpeningTag,
+		paragraphElementContents,
+		printClosingTag,
+		printNewLine,
+	)(w, n, level, col)
+}
+
+func paragraphElementContents(w io.Writer, n *html.Node, level int, col uint) (colAfter uint, err error) {
+	lw := NewLineOrPassWriter(w)
+	colPrep, err := runPrinters(
+		printNewLine,
+		incrementLevel(1, printParagraphChildren),
+		func(w io.Writer, n *html.Node, level int, col uint) (colAfter uint, err error) {
+			lw.Drain()
+			return col, err
+		},
+	)(lw, n, level, col)
+	if err != nil {
+		return colPrep, err
+	}
+
+	return printIf(
+		func(_ *html.Node, _ int, _ uint) bool {
+			return lw.IsEndOfFirstLineReached()
+		},
+		runPrinters(
+			printNewLine,
+			printIndent,
+		),
+	)(w, n, level, colPrep)
 }
 
 func printParagraphChildren(w io.Writer, n *html.Node, level int, col uint) (colAfter uint, err error) {
@@ -508,9 +533,6 @@ func nonSpaceLeftIndex(s string) int {
 		}
 	}
 
-	// At this point start starts an ASCII
-	// non-space bytes, so we're done. Non-ASCII cases have already
-	// been handled above.
 	return start
 }
 

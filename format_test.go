@@ -100,28 +100,31 @@ silk <span class="foo">bar</span></pre>
 `,
 		},
 		{
-			name:  "paragraph 'inline' elements are paragraph formatted",
+			name:  "paragraph text node shorter than wrap limit remain on the same line with its tags",
+			input: `<p>Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p>`,
+			expected: `<p>Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p>
+`,
+		},
+		{
+			name:  "paragraph 'inline' elements remain on the same line if its content length is less than limit",
 			input: `<div><p>Lorem ipsum <strong>dolor sit amet</strong>, consectetur adipiscing elit.</p></div>`,
 			expected: `<div>
-  <p>
-    Lorem ipsum <strong>dolor sit amet</strong>, consectetur adipiscing elit.
-  </p>
+  <p>Lorem ipsum <strong>dolor sit amet</strong>, consectetur adipiscing elit.</p>
 </div>
 `,
 		},
 		{
 			name:  "paragraph child elements are properly spaced",
 			input: `<p>This <span> include </span> spaces please. This<i>is </i>weird. <em> Boo</em>.</p>`,
-			expected: `<p>
-  This <span> include </span> spaces please. This<i>is </i>weird. <em> Boo</em>.
-</p>
+			expected: `<p>This <span> include </span> spaces please. This<i>is </i>weird. <em> Boo</em>.</p>
 `,
 		},
 		{
 			name:  "paragraph empty child element attributes are properly wrapped",
-			input: `<p>See <b classs="red">image tag</b>. Something <img src="https://this.url.is/okay">What now?</p>`,
+			input: `<p>See <b classs="red">image tag</b>. Something <img src="https://this.url.is/okay">What now? Some more text so this would wrap.</p>`,
 			expected: `<p>
-  See <b classs="red">image tag</b>. Something <img src="https://this.url.is/okay">What now?
+  See <b classs="red">image tag</b>. Something <img src="https://this.url.is/okay">What now? Some more
+  text so this would wrap.
 </p>
 `,
 		},
@@ -141,18 +144,11 @@ silk <span class="foo">bar</span></pre>
 		test := test
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-
-			if strings.Contains(test.input, "Something") {
-				Klog = true
-			}
 			r := strings.NewReader(test.input)
 			w := new(strings.Builder)
 
 			if err := Fragment(w, r); err != nil {
 				t.Fatalf("failed to format: %v", err)
-			}
-			if strings.Contains(test.input, "Something") {
-				Klog = false
 			}
 			assert.Equal(t, test.expected, w.String())
 		})
