@@ -138,6 +138,39 @@ silk <span class="foo">bar</span></pre>
 </p>
 `,
 		},
+		{
+			name:  "script tags with src attributes stay in one line",
+			input: `<script src="https://example.com/script.js"></script>`,
+			expected: `<script src="https://example.com/script.js"></script>
+`,
+		},
+		{
+			name:  "paragraph with text and inline br elements break on those lines",
+			input: `<div><p>Lorem ipsum dolor sit amet,<br>consectetur adipiscing elit.<br>Cras in blandit odio, eget gravida eros.</p></div>`,
+			expected: `<div>
+  <p>
+    Lorem ipsum dolor sit amet,<br>
+    consectetur adipiscing elit.<br>
+    Cras in blandit odio, eget gravida eros.
+  </p>
+</div>
+`,
+		},
+		{
+			name: "paragraph with inline br and line break formatting are properly indented",
+			input: `<p>
+    Lorem ipsum dolor sit amet,<br>
+    consectetur adipiscing elit.<br>
+    Cras in blandit odio, eget gravida eros.
+  </p>
+`,
+			expected: `<p>
+  Lorem ipsum dolor sit amet,<br>
+  consectetur adipiscing elit.<br>
+  Cras in blandit odio, eget gravida eros.
+</p>
+`,
+		},
 	}
 
 	for _, test := range tests {

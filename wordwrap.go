@@ -57,6 +57,7 @@ const (
 	NullUnit WordWrapType = iota
 	Spaces
 	NewLine
+	GreedyNewLine
 	Word
 )
 
@@ -66,6 +67,8 @@ func lableWType(t WordWrapType) string {
 		return "Spaces"
 	case NewLine:
 		return "NewLine"
+	case GreedyNewLine:
+		return "GreedyNewLine"
 	case Word:
 		return "Word"
 	}
@@ -88,7 +91,7 @@ func (unit WrapUnit) Merge(other WrapUnit) WrapUnit {
 		return unit
 	}
 
-	if unit.typ == NewLine {
+	if unit.typ == NewLine || unit.typ == GreedyNewLine {
 		return unit
 	}
 
@@ -104,6 +107,7 @@ func (unit WrapUnit) IsNull() bool {
 }
 
 var newlineUnit = WrapUnit{typ: NewLine, value: newlineBytes, width: 0}
+var greedyNewlineUnit = WrapUnit{typ: GreedyNewLine, value: newlineBytes, width: 0}
 var nullUnit = WrapUnit{typ: NullUnit}
 
 func wordToFeed(typ WordWrapType, str string) WrapUnit {
@@ -333,15 +337,16 @@ func (l *Line) PopLast() *UnitPair {
 
 type WordWrapper struct {
 	WrapOptions
-	Writer           io.Writer
-	Column           uint
-	started          bool
-	flushed          bool
-	indentationBytes []byte
-	lastUnit         WrapUnit
-	currentLine      *Line
-	currentPair      *UnitPair
-	filledLineLast   bool
+	Writer            io.Writer
+	Column            uint
+	started           bool
+	flushed           bool
+	indentationBytes  []byte
+	lastUnit          WrapUnit
+	currentLine       *Line
+	currentPair       *UnitPair
+	filledLineLast    bool
+	isInGreedyNewLine bool
 }
 
 func NewWordWrapper(writer io.Writer, options WrapOptions) *WordWrapper {
@@ -397,6 +402,10 @@ func (ww *WordWrapper) AddNewLine() uint {
 	return ww.AddUnit(newlineUnit)
 }
 
+func (ww *WordWrapper) AddGreedyNewLine() uint {
+	return ww.AddUnit(greedyNewlineUnit)
+}
+
 func unitValues(units []WrapUnit) string {
 	str := ""
 	for _, unit := range units {
@@ -413,7 +422,7 @@ func (ww *WordWrapper) AddUnit(unit WrapUnit) uint {
 	case NullUnit:
 		return 0
 
-	case NewLine:
+	case GreedyNewLine:
 		if ww.currentPair.HasWord() && !ww.currentLine.IsLastPair(ww.currentPair) {
 			ww.appendPair(ww.currentPair)
 		}
@@ -423,6 +432,20 @@ func (ww *WordWrapper) AddUnit(unit WrapUnit) uint {
 		}
 
 		ww.writeNewLine()
+		ww.isInGreedyNewLine = true
+
+	case NewLine:
+		if !ww.isInGreedyNewLine {
+			if ww.currentPair.HasWord() && !ww.currentLine.IsLastPair(ww.currentPair) {
+				ww.appendPair(ww.currentPair)
+			}
+			if ww.lastUnit.typ != NewLine {
+				ww.flushLine()
+				ww.currentPair = NewUnitPair(true)
+			}
+
+			ww.writeNewLine()
+		}
 
 	case Spaces:
 		if ww.lastUnit.typ != Spaces {
@@ -436,10 +459,13 @@ func (ww *WordWrapper) AddUnit(unit WrapUnit) uint {
 				ww.flushLine()
 			}
 			ww.currentPair = NewUnitPair(aNewLine)
-			ww.currentPair.AddSpace(unit)
+			if !ww.isInGreedyNewLine {
+				ww.currentPair.AddSpace(unit)
+			}
 		}
 
 	case Word:
+		ww.isInGreedyNewLine = false
 		ww.currentPair.AddWord(unit)
 		if !ww.currentLine.PairFits(ww.currentPair) {
 			ww.flushLine()

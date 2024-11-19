@@ -70,6 +70,10 @@ func isEmptyElement(n *html.Node, _ int, _ uint) bool {
 	return false
 }
 
+func isBreakElement(n *html.Node, _ int, _ uint) bool {
+	return n.DataAtom == atom.Br
+}
+
 func isNonEmptyElement(n *html.Node, level int, col uint) bool {
 	return !isEmptyElement(n, level, col)
 }
@@ -87,6 +91,19 @@ func isSpecialContentElement(n *html.Node, _ int, _ uint) bool {
 
 func isChildOfSpecialContentElement(n *html.Node, level int, col uint) bool {
 	return isSpecialContentElement(n.Parent, level, col)
+}
+
+func isScriptWithSrcAttribute(n *html.Node, _ int, _ uint) bool {
+	return n.DataAtom == atom.Script && hasSrcAttribute(n)
+}
+
+func hasSrcAttribute(n *html.Node) bool {
+	for _, a := range n.Attr {
+		if a.Key == "src" {
+			return true
+		}
+	}
+	return false
 }
 
 func isParagraphLike(n *html.Node, _ int, _ uint) bool {
@@ -419,6 +436,14 @@ func printElementNode(w io.Writer, n *html.Node, level int, col uint) (colAfter 
 			printNewLine,
 		)(w, n, level, col)
 
+	case isScriptWithSrcAttribute(n, level, col):
+		return runPrinters(
+			printIndent,
+			printOpeningTag,
+			printClosingTag,
+			printNewLine,
+		)(w, n, level, col)
+
 	default:
 		return runPrinters(
 			printIndent,
@@ -609,6 +634,11 @@ func isAtFirstColumn(_ *html.Node, _ int, col uint) bool {
 
 func printParagraphElementNode(w io.Writer, n *html.Node, level int, wrapper *WordWrapper) (colAfter uint, err error) {
 	switch {
+
+	case isBreakElement(n, level, wrapper.Column):
+		passOpeningTag(n, wrapper)
+		wrapper.AddGreedyNewLine()
+		return wrapper.Column, nil
 
 	case isEmptyElement(n, level, wrapper.Column):
 		passOpeningTag(n, wrapper)
