@@ -2,6 +2,7 @@ package formathtml
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"io"
 	"strings"
@@ -196,8 +197,14 @@ func printCommentNode(w io.Writer, n *html.Node, level int, col uint) (colAfter 
 	return
 }
 
+func getRenderedStringData(n *html.Node) string {
+	var bbuff bytes.Buffer
+	html.Render(&bbuff, n)
+	return bbuff.String()
+}
+
 func printTextNode(w io.Writer, n *html.Node, level int, col uint) (colAfter uint, err error) {
-	s := n.Data
+	s := getRenderedStringData(n)
 	s = strings.TrimSpace(s)
 	if s != "" {
 		colAfter, err = runPrinters(
@@ -327,8 +334,9 @@ func printNewLine(w io.Writer, _ *html.Node, _ int, _ uint) (uint, error) {
 }
 
 func printData(w io.Writer, n *html.Node, _ int, col uint) (colAfter uint, err error) {
-	colAfter = col + uint(utf8.RuneCountInString(n.Data))
-	_, err = fmt.Fprint(w, n.Data)
+	s := getRenderedStringData(n)
+	colAfter = col + uint(utf8.RuneCountInString(s))
+	_, err = fmt.Fprint(w, s)
 	return
 }
 
@@ -598,7 +606,7 @@ func trimSpaceRight(s string) string {
 }
 
 func printParagraphTextNode(_ io.Writer, n *html.Node, level int, wrapper *WordWrapper) (colAfter uint, err error) {
-	s := n.Data
+	s := getRenderedStringData(n)
 	endChild := noNextSibling(n, level, colAfter)
 	childOfP := isChildOfParagraph(n, level, colAfter)
 

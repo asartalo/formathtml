@@ -171,6 +171,21 @@ silk <span class="foo">bar</span></pre>
 </p>
 `,
 		},
+		{
+			name:     "Escaped sequences are retained",
+			input:    `<div>&lt;div&gt;Hello&lt;/div&gt;</div>` + "\n",
+			expected: `<div>&lt;div&gt;Hello&lt;/div&gt;</div>` + "\n",
+		},
+		{
+			name:     "Escaped sequences in paragraphs retained",
+			input:    `<p>&lt;div&gt;Hello&lt;/div&gt;</p>` + "\n",
+			expected: `<p>&lt;div&gt;Hello&lt;/div&gt;</p>` + "\n",
+		},
+		{
+			name:     "Escaped sequences in pre tags are retained",
+			input:    `<pre>&lt;div&gt;Hello&lt;/div&gt;</pre>` + "\n",
+			expected: `<pre>&lt;div&gt;Hello&lt;/div&gt;</pre>` + "\n",
+		},
 	}
 
 	for _, test := range tests {
