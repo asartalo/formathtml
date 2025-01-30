@@ -79,11 +79,11 @@ body {
 		},
 		{
 			name: "pre formats as is",
-			input: `<div><pre>Foo bar
-silk <span class="foo">bar</span></pre></div>`,
+			input: `<div><pre><code>Foo bar
+silk <span class="foo">bar</span></pre></code></div>`,
 			expected: `<div>
-  <pre>Foo bar
-silk <span class="foo">bar</span></pre>
+  <pre><code>Foo bar
+silk <span class="foo">bar</span></code></pre>
 </div>
 `,
 		},
@@ -185,6 +185,13 @@ silk <span class="foo">bar</span></pre>
 			name:     "Escaped sequences in pre tags are retained",
 			input:    `<pre>&lt;div&gt;Hello&lt;/div&gt;</pre>` + "\n",
 			expected: `<pre>&lt;div&gt;Hello&lt;/div&gt;</pre>` + "\n",
+		},
+		{
+			name:  "Noscript code are not escaped",
+			input: `<noscript><div>Hello</div></noscript>` + "\n",
+			expected: `<noscript>
+  <div>Hello</div>
+</noscript>` + "\n",
 		},
 	}
 

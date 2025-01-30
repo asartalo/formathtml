@@ -28,7 +28,7 @@ func conditionWithContext[T comparable](value T, cond ConditionalAndContext[T]) 
 
 // Document formats a HTML document.
 func Document(w io.Writer, r io.Reader) (err error) {
-	node, err := html.Parse(r)
+	node, err := html.ParseWithOptions(r, html.ParseOptionEnableScripting(false))
 	if err != nil {
 		return err
 	}
@@ -40,7 +40,7 @@ func Fragment(w io.Writer, r io.Reader) (err error) {
 	context := &html.Node{
 		Type: html.ElementNode,
 	}
-	nodes, err := html.ParseFragment(r, context)
+	nodes, err := html.ParseFragmentWithOptions(r, context, html.ParseOptionEnableScripting(false))
 	if err != nil {
 		return err
 	}
